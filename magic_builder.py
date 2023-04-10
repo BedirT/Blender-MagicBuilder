@@ -84,14 +84,16 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             if obj.type == 'MESH':
                 return obj.dimensions
 
-    def set_piece_type(self, piece_type: str):
-        '''
-        Searches for a piece with the given name in the design collection
-        '''
+    def set_piece_type(self, piece_type: str) -> Dict[str, Dict[str, Union[bpy.types.Object, List[bpy.types.Object]]]]:
+        """
+        Searches for a piece with the given name in the design collection.
+        """
         pieces = {}
         if piece_type in self.design_collection.children.keys():
             collection = self.design_collection.children[piece_type]
+            # Get prop objects
             pieces = {obj.name.split('_')[1]: {'prop': obj} for obj in collection.objects if obj.name.startswith('prop_')}
+            # Get extra objects
             for obj in collection.objects:
                 if obj.name.startswith('extra_'):
                     piece_name = obj.name.split('_')[1]
@@ -104,21 +106,23 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
 
     def set_piece_types(self):
         self.piece_types = {}
-        for piece_types in part_collections .values():
+        for piece_types in part_collections.values():
             for piece_type in piece_types:
                 self.piece_types[piece_type] = self.set_piece_type(piece_type)
 
-    def get_piece(self, piece_type):
-        '''Randomly selects a prop piece from the given type'''
+    def get_piece(self, piece_type: str) -> Tuple[Optional[bpy.types.Object], Optional[str]]:
+        """Randomly selects a prop piece from the given type."""
         if not self.piece_types[piece_type]:
             return None, None
         idx = random.choice(list(self.piece_types[piece_type].keys()))
         return self.piece_types[piece_type][idx]['prop'], idx
 
-    def get_extras(self, piece_type, piece_idx):
-        '''Randomly selects extra pieces from the given type unlike prop selection
+    def get_extras(self, piece_type: str, piece_idx: str) -> List[bpy.types.Object]:
+        """
+        Randomly selects extra pieces from the given type unlike prop selection,
         which allows only a single piece to be selected. Extras are optional and multiple
-        extras can be selected all at once.'''
+        extras can be selected all at once.
+        """
         extras = []
         if self.piece_types[piece_type][piece_idx]['extra']:
             for extra in self.piece_types[piece_type][piece_idx]['extra']:
