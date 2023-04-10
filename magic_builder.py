@@ -178,24 +178,24 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         rotation = rotation_map.get(piece_type, {}).get((x, y), (0, 0, 0))
         return rotation
 
-    def duplicate_objects_with_children(self, obj, target_collection, addon_prefs):
+    def duplicate_objects_with_children(self, obj: bpy.types.Object, target_collection: bpy.types.Collection, addon_prefs: bpy.types.AddonPreferences) -> bpy.types.Object:
+        """Duplicate an object and its children recursively."""
         duplicate = obj.copy()
-        duplicate.data = obj.data.copy()  # Create a copy of the object's data (e.g., mesh data)
+        duplicate.data = obj.data.copy()
         target_collection.objects.link(duplicate)
 
         for child in obj.children:
-            # if the child is hidden, we need to unhide it to duplicate it
-            if child.hide_get():
+            # If the child is hidden, unhide it to duplicate it
+            was_hidden = child.hide_get()
+            if was_hidden:
                 child.hide_set(False)
 
-                child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
-                child_duplicate.parent = duplicate
+            child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
+            child_duplicate.parent = duplicate
 
+            if was_hidden:
                 child.hide_set(True)
                 child_duplicate.hide_set(True)
-            else:
-                child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
-                child_duplicate.parent = duplicate
 
             # Apply the child object's transformation relative to the parent
             child_duplicate.matrix_parent_inverse = child.matrix_parent_inverse.copy()
@@ -207,24 +207,25 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
 
         return duplicate
 
-    def generate_building(self): 
-        self.collection = bpy.data.collections.new(self.collection_name) 
+    def generate_building(self):
+        """Generate the building structure."""
+        self.collection = bpy.data.collections.new(self.collection_name)
 
         # Link to the context
         bpy.context.scene.collection.children.link(self.collection)
 
         z_lim = (self.max_z + 1) if self.add_roof else self.max_z
-        
+
         for i in range(self.max_y * self.max_x * z_lim):
             coordinates = i % self.max_x, (i // self.max_x) % self.max_y, i // (self.max_x * self.max_y)
-            
+
             # Create floor collection if it doesn't exist
             floor_collection_name = f'floor_{coordinates[2]}'
             if floor_collection_name not in self.collection.children:
                 floor_collection = bpy.data.collections.new(floor_collection_name)
                 floor_collection.color_tag = 'COLOR_0' + str(coordinates[2] % 8 + 1)
                 self.collection.children.link(floor_collection)
-                floor_collection_name = floor_collection.name # in case the name was changed due to a duplicate
+                floor_collection_name = floor_collection.name
             else:
                 floor_collection = bpy.data.collections.get(floor_collection_name)
 
@@ -236,22 +237,18 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             else:
                 piece_type = 'corner' if self.is_corner(coordinates) else 'edge'
 
-            if coordinates[2] == 0:
-                piece_type = 'bottom_' + piece_type
-            elif coordinates[2] == self.max_z:
-                piece_type = 'roof_' + piece_type
-            else:
-                piece_type = 'middle_' + piece_type
-            
+            piece_type = f"{('bottom' if coordinates[2] == 0 else 'middle' if coordinates[2] < self.max_z else 'roof')}_{piece_type}"
+
             piece_orig, idx = self.get_piece(piece_type)
             if piece_orig is None:
                 continue
+
             addon_prefs = bpy.context.preferences.addons[__name__].preferences
             piece = self.duplicate_objects_with_children(piece_orig, floor_collection, addon_prefs)
             piece.location = (
                 self.start_loc[0] + coordinates[0] * self.piece_size[0],
                 self.start_loc[1] + coordinates[1] * self.piece_size[1],
-                self.start_loc[2] + coordinates[2] * self.piece_size[2]
+                self.start_loc[2] + coordinates[2] * self.piece_size[2],
             )
             piece_rotation = self.get_piece_rotation(coordinates, piece_type)
             self.set_piece_rotation(piece, piece_rotation)
