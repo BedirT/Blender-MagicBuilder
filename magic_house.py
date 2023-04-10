@@ -108,7 +108,8 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
             start_loc=context.scene.dhg_start_loc,
             add_roof=context.scene.dhg_add_roof,
             collection_name=context.scene.dhg_collection_name,
-            design_collection_name=context.scene.dhg_design_collection_name
+            design_collection_name=context.scene.dhg_design_collection_name,
+            extra_probability=context.scene.dhg_extra_probability,
         )
 
         if self.design_collection is None:
@@ -137,6 +138,7 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
         self.max_z = max_z
         self.collection_name = collection_name
         self.piece_size = self.find_piece_size()
+        self.extra_probability = extra_probability
 
         # Get the design collection
         self.design_collection = bpy.data.collections.get(design_collection_name)
@@ -280,32 +282,33 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
             return (0, 0, 0)
 
     def duplicate_objects_with_children(self, obj, target_collection, addon_prefs):
-        hidden_objs = []
-
-        # Apply object transformations before duplicating
-        obj_matrix_world = obj.matrix_world.copy()
-
         duplicate = obj.copy()
         duplicate.data = obj.data.copy()  # Create a copy of the object's data (e.g., mesh data)
         target_collection.objects.link(duplicate)
 
-        # Apply the saved matrix_world to the duplicate
-        duplicate.matrix_world = obj_matrix_world
-
         for child in obj.children:
+            # if the child is hidden, we need to unhide it to duplicate it
             if child.hide_get():
-                hidden_objs.append(child.name_full)
                 child.hide_set(False)
 
-            child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
-            child_duplicate.parent = duplicate
+                child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
+                child_duplicate.parent = duplicate
 
-        for o in hidden_objs:
-            addon_prefs.hidden_objects.add().name = o
-            addon_prefs.hidden_objects[-1].selected = False
+                child.hide_set(True)
+                child_duplicate.hide_set(True)
+            else:
+                child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
+                child_duplicate.parent = duplicate
+
+            # Apply the child object's transformation relative to the parent
+            child_duplicate.matrix_parent_inverse = child.matrix_parent_inverse.copy()
+
+            # Update the boolean modifier if necessary
+            for mod in duplicate.modifiers:
+                if mod.type == 'BOOLEAN' and mod.object == child:
+                    mod.object = child_duplicate
 
         return duplicate
-
 
     def generate_building(self): 
         self.collection = bpy.data.collections.new(self.collection_name) 
@@ -352,7 +355,16 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
                 self.start_loc[1] + coordinates[1] * self.piece_size[1],
                 self.start_loc[2] + coordinates[2] * self.piece_size[2]
             )
-            self.set_piece_rotation(piece, self.get_piece_rotation(coordinates, piece_type))
+            piece_rotation = self.get_piece_rotation(coordinates, piece_type)
+            self.set_piece_rotation(piece, piece_rotation)
+
+            # Add extras
+            extras = self.get_extras(piece_type, idx)
+            for extra_orig in extras:
+                extra = self.duplicate_objects_with_children(extra_orig, floor_collection, addon_prefs)
+                extra.location = piece.location
+                self.set_piece_rotation(extra, piece_rotation)
+
 
 
 class DHG_OT_BuildingTemplateCreator(bpy.types.Operator):
@@ -555,6 +567,10 @@ class DHG_PT_DesertHouseGeneratorPanel(bpy.types.Panel):
         col.prop(context.scene, "dhg_start_loc", text="Z", index=2, slider=True)
 
         col = layout.column(align=True)
+        col.label(text="Probability of adding each extra:")
+        col.prop(context.scene, "dhg_extra_probability", text="Prob", slider=True)
+
+        col = layout.column(align=True)
         col.label(text="Add Roof:")
         col.prop(context.scene, "dhg_add_roof")
 
@@ -594,7 +610,7 @@ class DHG_PT_DesertHouseGeneratorPanel(bpy.types.Panel):
 def register():
     # Registering the classes
     bpy.utils.register_class(DHG_HiddenObject)
-    bpy.utils.register_class(DHG_OT_ConfirmDeleteOldCollection)
+    # bpy.utils.register_class(DHG_OT_ConfirmDeleteOldCollection)
     bpy.utils.register_class(DHG_PT_DesertHouseGeneratorPanel)
     bpy.utils.register_class(DHG_OT_DesertHouseGenerator)
     bpy.utils.register_class(DHG_OT_BuildingTemplateCreator)
@@ -656,11 +672,18 @@ def register():
         description="Name of the collection where the design of the building is stored. If you do not have a design collection, use the Create Building Template button to create one.",
         default="DHG_Design_System"
     )
+    bpy.types.Scene.dhg_extra_probability = bpy.props.FloatProperty(
+        name="Extra Probability",
+        description="Probability of adding an extra block to the building",
+        default=0.5,
+        min=0,
+        max=1
+    )
 
 def unregister():
     # Unregistering the classes
     bpy.utils.unregister_class(DHG_HiddenObject)
-    bpy.utils.unregister_class(DHG_OT_ConfirmDeleteOldCollection)
+    # bpy.utils.unregister_class(DHG_OT_ConfirmDeleteOldCollection)
     bpy.utils.unregister_class(DHG_PT_DesertHouseGeneratorPanel)
     bpy.utils.unregister_class(DHG_OT_DesertHouseGenerator)
     bpy.utils.unregister_class(DHG_OT_BuildingTemplateCreator)
