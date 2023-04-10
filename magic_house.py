@@ -50,7 +50,7 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
 
         self.generate_building()
 
-        return {'RUNNING_MODAL'}
+        return {'FINISHED'}
 
     def building_setup(self,  max_x: int, 
                             max_y: int, 
@@ -82,6 +82,11 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                 old_collection.objects.unlink(obj)
                 bpy.data.objects.remove(obj)
             bpy.data.collections.remove(old_collection)
+
+            # Purge orphaned data
+            bpy.ops.outliner.orphans_purge() # purge collections
+            bpy.ops.outliner.orphans_purge() # purge objects
+            bpy.ops.outliner.orphans_purge() # purge meshes
 
     def is_corner(self, coordinates: Tuple[int]) -> bool:
         '''Returns true if coordinates indicate a corner location.'''
