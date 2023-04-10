@@ -267,42 +267,47 @@ class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
     bl_label = "Create Building Template"
     bl_description = "Creates a template for the building design objects"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
     def create_design_collection_template(self):
-        '''
+        """
         Creates a collection template for the design
-        '''
+        """
         # Create the collection
         collection = bpy.data.collections.new("MB_Design_System")
         collection.color_tag = 'COLOR_06'
+        
         # Link to the context
         bpy.context.scene.collection.children.link(collection)
 
         # Create the subcollections
         idx_p = 0
         first_item = True
-        for parent_name, sub_names in part_collections .items():
+        for parent_name, sub_names in part_collections.items():
             subcollection = bpy.data.collections.new(parent_name)
-            subcollection.color_tag = 'COLOR_0' + str(idx_p % 8 + 1)
+            subcollection.color_tag = f'COLOR_0{idx_p % 8 + 1}'
             collection.children.link(subcollection)
+            
             for i, sub_name in enumerate(sub_names):
                 subsubcollection = bpy.data.collections.new(sub_name)
-                subsubcollection.color_tag = 'COLOR_0' + str(i % 8 + 1)
+                subsubcollection.color_tag = f'COLOR_0{i % 8 + 1}'
                 subcollection.children.link(subsubcollection)
+                
                 if first_item:
                     first_item = False
-                    self.populate_props(subsubcollection)   
+                    self.populate_props(subsubcollection)
+                    
             idx_p += 1
-            
+
     def populate_props(self, collection):
-        '''
+        """
         Populates two prop cubes to show file organization
-        '''
+        """
         bpy.ops.mesh.primitive_cube_add()
         prop_cube = bpy.context.active_object
         prop_cube.name = "prop_0_temporary cube here"
         prop_cube.hide_render = True
         collection.objects.link(prop_cube)
+        
         if bpy.context.scene.collection.objects.get(prop_cube.name):
             bpy.context.scene.collection.objects.unlink(prop_cube)
 
@@ -311,30 +316,33 @@ class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
         extra_cube.name = "extra_0_a matching extra for the cube"
         extra_cube.hide_render = True
         collection.objects.link(extra_cube)
+        
         if bpy.context.scene.collection.objects.get(extra_cube.name):
             bpy.context.scene.collection.objects.unlink(extra_cube)
 
-        # add text objects with descriptions
+        # Add text objects with descriptions
         bpy.ops.object.text_add()
         prop_text = bpy.context.active_object
         prop_text.name = "prop_text"
         prop_text.hide_render = True
-        prop_text.data.body =   "Please place the objects of the appropriate types\n" + \
-                                "in the corresponding collection with names starting with\n" + \
-                                "'prop_{type_index}_whatever else' or 'extra_{type_index}_whatever else'.\n" + \
-                                "\nThese two types are used to populate the building. The prop objects\n" + \
-                                "are used to create the general shape of the building, while the extra\n" + \
-                                "objects are used to decorate the building. Both types are randomly generated\n" + \
-                                "from the collections. The {type_index} is used to match the props to their possible\n" + \
-                                "extra pairs.\n\nWhile the props are selected individually (only one can be selected\n" + \
-                                "for single position placement), the extras are selected as a group (all extras\n" + \
-                                "can be selected for multiple position placement)."
+        prop_text.data.body = (
+            "Please place the objects of the appropriate types\n"
+            "in the corresponding collection with names starting with\n"
+            "'prop_{type_index}_whatever else' or 'extra_{type_index}_whatever else'.\n"
+            "\nThese two types are used to populate the building. The prop objects\n"
+            "are used to create the general shape of the building, while the extra\n"
+            "objects are used to decorate the building. Both types are randomly generated\n"
+            "from the collections. The {type_index} is used to match the props to their possible\n"
+            "extra pairs.\n\nWhile the props are selected individually (only one can be selected\n"
+            "for single position placement), the extras are selected as a group (all extras\n"
+            "can be selected for multiple position placement)."
+        )
         prop_text.data.size = 0.4
         prop_text.location = (2, -2, 0)
         collection.objects.link(prop_text)
+        
         if bpy.context.scene.collection.objects.get(prop_text.name):
             bpy.context.scene.collection.objects.unlink(prop_text)
-
 
     def execute(self, context):
         if "MB_Design_System" not in bpy.data.collections:
@@ -349,13 +357,15 @@ class MB_HiddenObject(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
     selected: bpy.props.BoolProperty(default=False)
 
+
 def update_use_select_with_children(self, context):
     if not self.use_select_with_children:
         self.select_invisible_objects = False
 
+
 class SelectWithChildrenPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
-    
+
     use_select_with_children: bpy.props.BoolProperty(
         name="Select with Children",
         description="When enabled, selecting an object will also select its children",
@@ -373,7 +383,7 @@ class SelectWithChildrenPreferences(bpy.types.AddonPreferences):
 
 
 class MB_OT_RehideObjects(bpy.types.Operator):
-    '''an operator to re-hide selected objects'''
+    """An operator to re-hide selected objects"""
     bl_idname = "mb.rehide_objects"
     bl_label = "Bulk Invisible"
 
@@ -390,7 +400,7 @@ class MB_OT_RehideObjects(bpy.types.Operator):
 
         for name in to_remove:
             addon_prefs.hidden_objects.remove(addon_prefs.hidden_objects.find(name))
-                    
+
         return {'FINISHED'}
 
 
@@ -408,7 +418,7 @@ def select_objects(obj, addon_prefs, reveal_hidden=False):
         addon_prefs.hidden_objects[-1].selected = False
 
 
-def object_select_callback(*args):
+def on_object_select(*args):
     """
     Callback function for object selection.
     """
@@ -427,15 +437,15 @@ def subscribe_to_object_select():
         key=(bpy.types.LayerObjects, "active"),
         owner=object(),
         args=(),
-        notify=object_select_callback,
+        notify=on_object_select,
         options={"PERSISTENT"},
     )
 
 
 class MB_PT_MagicBuilderPanel(bpy.types.Panel):
-    '''
+    """
     Panel for the Magic Builder addon.
-    '''
+    """
     bl_idname = "OBJECT_PT_mb"
     bl_label = "Magic Builder"
     bl_space_type = 'VIEW_3D'
@@ -503,6 +513,9 @@ class MB_PT_MagicBuilderPanel(bpy.types.Panel):
             
 
 def register():
+    """
+    Register all classes and properties related to the Magic Builder addon.
+    """
     # Registering the classes
     bpy.utils.register_class(MB_HiddenObject)
     bpy.utils.register_class(MB_PT_MagicBuilderPanel)
@@ -512,7 +525,6 @@ def register():
     bpy.utils.register_class(MB_OT_RehideObjects)
     subscribe_to_object_select()
     
-
     bpy.types.WindowManager.mb_old_collection_deleted = bpy.props.BoolProperty(
         name="Old Collection Deleted",
         description="Indicates if the old collection has been deleted",
@@ -575,6 +587,9 @@ def register():
     )
 
 def unregister():
+    """
+    Unregister all classes and properties related to the Magic Builder addon.
+    """
     # Unregistering the classes
     bpy.utils.unregister_class(MB_HiddenObject)
     bpy.utils.unregister_class(MB_PT_MagicBuilderPanel)
