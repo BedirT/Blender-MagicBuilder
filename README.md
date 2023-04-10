@@ -13,6 +13,7 @@ MagicBuilder is a blender add-on that implements a custom procedural building ge
 </p>
 Above is a sample building generated with the add-on. I am not the best at modeling, so the building is not perfect :) I will soon add a better model that showcases the add-on's capabilities better.
 
+# Road Map
 - [ ] Add a better model
     - [ ] Showcase randomized object placement for props
     - [ ] Showcase randomized object placement for extras
