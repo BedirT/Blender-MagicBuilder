@@ -4,12 +4,12 @@ import random
 from typing import Tuple 
 
 bl_info = {
-    "name": "Desert House Generator",
+    "name": "Magic Builder",
     "author": "Bedir Tapkan",
-    "version": (1, 1),
+    "version": (1, 2),
     "blender": (3, 50, 0),
-    "location": "View3D > Sidebar > DesertHouseGen",
-    "description": "Generates a procedural desert house with custom dimensions",
+    "location": "View3D > Sidebar > MagicBuilder",
+    "description": "Generates a procedural building with custom dimensions and design blocks.",
     "warning": "You need to have the meshes assuming a same size box surrounding them for a proper custom result.",
     "category": "Object",
 }
@@ -21,99 +21,30 @@ type_names = {
     'roof_level': ['roof_edge', 'roof_corner', 'roof_center']
 }
 
-
-# class DHG_OT_ConfirmDeleteOldCollection(bpy.types.Operator):
-#     bl_idname = "dhg.confirm_delete_old_collection"
-#     bl_label = "Delete Old Collection?"
-
-#     caller: bpy.props.StringProperty(
-#         name="Caller",
-#         description="The ID name of the calling operator",
-#         default=""
-#     )
-
-#     collection_name: bpy.props.StringProperty(
-#         name="Collection Name",
-#         description="The name of the collection to delete",
-#         default=""
-#     )
     
-#     action: bpy.props.EnumProperty(
-#         items=[('OK', 'OK', 'OK'), ('CANCEL', 'Cancel', 'Cancel')],
-#         default='OK'
-#     )
-
-#     @classmethod
-#     def poll(cls, context):
-#         return True
-
-#     def invoke(self, context, event):
-#         wm = context.window_manager
-#         return wm.invoke_props_dialog(self, width=250)
-
-#     def execute(self, context):
-#         self.clear_collection(self.collection_name)
-        
-#         if self.caller:
-#             context.window_manager.dhg_old_collection_deleted = True
-
-#         return {'FINISHED'}
-
-#     def draw(self, context):
-#         layout = self.layout
-#         layout.label(text="Are you sure you want to delete the old collection?")
-#         row = layout.row()
-#         row.operator_context = 'EXEC_DEFAULT'
-#         row.operator(self.bl_idname, text="OK")
-#         row.operator("dhg.confirm_delete_old_collection", text="Cancel").action = 'CANCEL'
-
-#     def clear_collection(self, collection_name):
-#         if collection_name in bpy.data.collections:
-#             old_collection = bpy.data.collections[collection_name]
-#             for obj in old_collection.objects:
-#                 old_collection.objects.unlink(obj)
-#                 bpy.data.objects.remove(obj)
-#             bpy.data.collections.remove(old_collection)
-
-#     def cancel(self, context):
-#         return {'CANCELLED'}
-
-    
-class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
+class MB_OT_MagicBuilder(bpy.types.Operator):
     '''
     Generates a house with the given design blocks.
     '''
-    bl_idname = "dhg.generate_building"
-    bl_label = "Generate Building"
+    bl_idname = "mb.generate_building"
+    bl_label = "Magic Builder"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def modal(self, context, event):
-        if context.window_manager.dhg_old_collection_deleted:
-            context.window_manager.dhg_old_collection_deleted = False
-            self.set_piece_types()
-
-            return {'FINISHED'}
-
-        return {'PASS_THROUGH'}
-        
-    def invoke(self, context, event):
-        return self.execute(context)
-
     def execute(self, context):
-        self.desert_house(
-            max_x=context.scene.dhg_max_x,
-            max_y=context.scene.dhg_max_y,
-            max_z=context.scene.dhg_max_z,
-            start_degree=context.scene.dhg_start_degree,
-            start_loc=context.scene.dhg_start_loc,
-            add_roof=context.scene.dhg_add_roof,
-            collection_name=context.scene.dhg_collection_name,
-            design_collection_name=context.scene.dhg_design_collection_name,
-            extra_probability=context.scene.dhg_extra_probability,
+        self.building_setup(
+            max_x=context.scene.mb_max_x,
+            max_y=context.scene.mb_max_y,
+            max_z=context.scene.mb_max_z,
+            start_degree=context.scene.mb_start_degree,
+            start_loc=context.scene.mb_start_loc,
+            add_roof=context.scene.mb_add_roof,
+            collection_name=context.scene.mb_collection_name,
+            design_collection_name=context.scene.mb_design_collection_name,
+            extra_probability=context.scene.mb_extra_probability,
         )
 
         if self.design_collection is None:
-            self.report({'ERROR'}, f"Collection {context.scene.dhg_design_collection_name} not found")
+            self.report({'ERROR'}, f"Collection {context.scene.mb_design_collection_name} not found")
             return {'CANCELLED'}
         self.set_piece_types()
 
@@ -121,7 +52,7 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
 
         return {'RUNNING_MODAL'}
 
-    def desert_house(self,  max_x: int, 
+    def building_setup(self,  max_x: int, 
                             max_y: int, 
                             max_z: int, 
                             start_degree: Tuple[float], 
@@ -367,8 +298,8 @@ class DHG_OT_DesertHouseGenerator(bpy.types.Operator):
 
 
 
-class DHG_OT_BuildingTemplateCreator(bpy.types.Operator):
-    bl_idname = "dhg.building_template_creator"
+class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
+    bl_idname = "mb.building_template_creator"
     bl_label = "Create Building Template"
     bl_description = "Creates a template for the building design objects"
     bl_options = {'REGISTER', 'UNDO'}
@@ -378,7 +309,7 @@ class DHG_OT_BuildingTemplateCreator(bpy.types.Operator):
         Creates a collection template for the design
         '''
         # Create the collection
-        collection = bpy.data.collections.new("DHG_Design_System")
+        collection = bpy.data.collections.new("MB_Design_System")
         collection.color_tag = 'COLOR_06'
         # Link to the context
         bpy.context.scene.collection.children.link(collection)
@@ -442,15 +373,15 @@ class DHG_OT_BuildingTemplateCreator(bpy.types.Operator):
 
 
     def execute(self, context):
-        if "DHG_Design_System" not in bpy.data.collections:
+        if "MB_Design_System" not in bpy.data.collections:
             self.create_design_collection_template()
             self.report({'INFO'}, "Building template created")
         else:
-            self.report({'WARNING'}, "The collection 'DHG_Design_System' already exists. A new template was not created.")
+            self.report({'WARNING'}, "The collection 'MB_Design_System' already exists. A new template was not created.")
         return {'FINISHED'}
 
 
-class DHG_HiddenObject(bpy.types.PropertyGroup):
+class MB_HiddenObject(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
     selected: bpy.props.BoolProperty(default=False)
 
@@ -474,12 +405,12 @@ class SelectWithChildrenPreferences(bpy.types.AddonPreferences):
         default=False,
     )
 
-    hidden_objects: bpy.props.CollectionProperty(type=DHG_HiddenObject)
+    hidden_objects: bpy.props.CollectionProperty(type=MB_HiddenObject)
 
 
-class DHG_OT_RehideObjects(bpy.types.Operator):
+class MB_OT_RehideObjects(bpy.types.Operator):
     '''an operator to re-hide selected objects'''
-    bl_idname = "dhg.rehide_objects"
+    bl_idname = "mb.rehide_objects"
     bl_label = "Bulk Invisible"
 
     def execute(self, context):
@@ -537,56 +468,56 @@ def subscribe_to_object_select():
     )
 
 
-class DHG_PT_DesertHouseGeneratorPanel(bpy.types.Panel):
+class MB_PT_MagicBuilderPanel(bpy.types.Panel):
     '''
-    Panel for the Desert House Generator.
+    Panel for the Magic Builder addon.
     '''
-    bl_idname = "OBJECT_PT_dhg"
-    bl_label = "Desert House Generator"
+    bl_idname = "OBJECT_PT_mb"
+    bl_label = "Magic Builder"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "DHG"
+    bl_category = "MB"
 
     def draw(self, context):
         layout = self.layout
 
         col = layout.column(align=True)
         col.label(text="Max Dimensions:")
-        col.prop(context.scene, "dhg_max_x")
-        col.prop(context.scene, "dhg_max_y")
-        col.prop(context.scene, "dhg_max_z")
+        col.prop(context.scene, "mb_max_x")
+        col.prop(context.scene, "mb_max_y")
+        col.prop(context.scene, "mb_max_z")
 
         col = layout.column(align=True)
         col.label(text="Starting Rotation:")
-        col.prop(context.scene, "dhg_start_degree", text="Z-Rotation", slider=True)
+        col.prop(context.scene, "mb_start_degree", text="Z-Rotation", slider=True)
 
         col = layout.column(align=True)
         col.label(text="Starting Location:", icon='WORLD')
-        col.prop(context.scene, "dhg_start_loc", text="X", index=0, slider=True)
-        col.prop(context.scene, "dhg_start_loc", text="Y", index=1, slider=True)
-        col.prop(context.scene, "dhg_start_loc", text="Z", index=2, slider=True)
+        col.prop(context.scene, "mb_start_loc", text="X", index=0, slider=True)
+        col.prop(context.scene, "mb_start_loc", text="Y", index=1, slider=True)
+        col.prop(context.scene, "mb_start_loc", text="Z", index=2, slider=True)
 
         col = layout.column(align=True)
         col.label(text="Probability of adding each extra:")
-        col.prop(context.scene, "dhg_extra_probability", text="Prob", slider=True)
+        col.prop(context.scene, "mb_extra_probability", text="Prob", slider=True)
 
         col = layout.column(align=True)
         col.label(text="Add Roof:")
-        col.prop(context.scene, "dhg_add_roof")
+        col.prop(context.scene, "mb_add_roof")
 
         col = layout.column(align=True)
         col.label(text="Collection Name:")
-        col.prop(context.scene, "dhg_collection_name", text="", icon='OUTLINER_OB_FONT')
+        col.prop(context.scene, "mb_collection_name", text="", icon='OUTLINER_OB_FONT')
 
         col = layout.column(align=True)
         col.label(text="Design Collection Name:")
-        col.prop_search(context.scene, "dhg_design_collection_name", bpy.data, "collections", text="")
+        col.prop_search(context.scene, "mb_design_collection_name", bpy.data, "collections", text="")
 
         row = layout.row()
-        row.operator("dhg.generate_building", icon='PLAY')
+        row.operator("mb.generate_building", icon='PLAY')
 
         row = layout.row()
-        row.operator("dhg.building_template_creator", icon='COLLECTION_NEW')
+        row.operator("mb.building_template_creator", icon='COLLECTION_NEW')
 
         addon_prefs = context.preferences.addons[__name__].preferences
         layout.prop(addon_prefs, "use_select_with_children", text="Select with Children", icon='LINKED')
@@ -604,46 +535,45 @@ class DHG_PT_DesertHouseGeneratorPanel(bpy.types.Panel):
             for hidden_obj_data in addon_prefs.hidden_objects:
                 col.prop(hidden_obj_data, "selected", text=hidden_obj_data.name)
 
-            bulk_invisible_op = layout.operator("dhg.rehide_objects", icon='RESTRICT_VIEW_ON')
+            bulk_invisible_op = layout.operator("mb.rehide_objects", icon='RESTRICT_VIEW_ON')
             
 
 def register():
     # Registering the classes
-    bpy.utils.register_class(DHG_HiddenObject)
-    # bpy.utils.register_class(DHG_OT_ConfirmDeleteOldCollection)
-    bpy.utils.register_class(DHG_PT_DesertHouseGeneratorPanel)
-    bpy.utils.register_class(DHG_OT_DesertHouseGenerator)
-    bpy.utils.register_class(DHG_OT_BuildingTemplateCreator)
+    bpy.utils.register_class(MB_HiddenObject)
+    bpy.utils.register_class(MB_PT_MagicBuilderPanel)
+    bpy.utils.register_class(MB_OT_MagicBuilder)
+    bpy.utils.register_class(MB_OT_BuildingTemplateCreator)
     bpy.utils.register_class(SelectWithChildrenPreferences)
-    bpy.utils.register_class(DHG_OT_RehideObjects)
+    bpy.utils.register_class(MB_OT_RehideObjects)
     subscribe_to_object_select()
     
 
-    bpy.types.WindowManager.dhg_old_collection_deleted = bpy.props.BoolProperty(
+    bpy.types.WindowManager.mb_old_collection_deleted = bpy.props.BoolProperty(
         name="Old Collection Deleted",
         description="Indicates if the old collection has been deleted",
         default=False
     )
 
-    bpy.types.Scene.dhg_max_x = bpy.props.IntProperty(
+    bpy.types.Scene.mb_max_x = bpy.props.IntProperty(
         name="Max X",
         description="Maximum X dimension of the building. In blocks",
         default=2,
         min=1,
     )
-    bpy.types.Scene.dhg_max_y = bpy.props.IntProperty(
+    bpy.types.Scene.mb_max_y = bpy.props.IntProperty(
         name="Max Y",
         description="Maximum Y dimension of the building. In blocks",
         default=2,
         min=1
     )
-    bpy.types.Scene.dhg_max_z = bpy.props.IntProperty(
+    bpy.types.Scene.mb_max_z = bpy.props.IntProperty(
         name="Max Z",
         description="Maximum Z dimension of the building. In blocks",
         default=1,
         min=1
     )
-    bpy.types.Scene.dhg_start_degree = bpy.props.IntProperty(
+    bpy.types.Scene.mb_start_degree = bpy.props.IntProperty(
         name="Start Degree",
         description="Starting Degree of Z-Axis rotation. In degrees (0-360)",
         default=0,
@@ -651,28 +581,28 @@ def register():
         max=360,
         subtype='ANGLE'
     )
-    bpy.types.Scene.dhg_start_loc = bpy.props.FloatVectorProperty(
+    bpy.types.Scene.mb_start_loc = bpy.props.FloatVectorProperty(
         name="Starting Location",
         description="Starting Location of the first block",
         default=(0, 0, 0),
         subtype='XYZ'
     )
-    bpy.types.Scene.dhg_add_roof = bpy.props.BoolProperty(
+    bpy.types.Scene.mb_add_roof = bpy.props.BoolProperty(
         name="Add Roof",
         description="Whether to add a roof to the building",
         default=True
     )
-    bpy.types.Scene.dhg_collection_name = bpy.props.StringProperty(
+    bpy.types.Scene.mb_collection_name = bpy.props.StringProperty(
         name="Collection Name",
         description="Name of the new collection where the building will be stored",
-        default="Desert House"
+        default="New Building"
     )
-    bpy.types.Scene.dhg_design_collection_name = bpy.props.StringProperty(
+    bpy.types.Scene.mb_design_collection_name = bpy.props.StringProperty(
         name="Design Collection Name",
         description="Name of the collection where the design of the building is stored. If you do not have a design collection, use the Create Building Template button to create one.",
-        default="DHG_Design_System"
+        default="MB_Design_System"
     )
-    bpy.types.Scene.dhg_extra_probability = bpy.props.FloatProperty(
+    bpy.types.Scene.mb_extra_probability = bpy.props.FloatProperty(
         name="Extra Probability",
         description="Probability of adding an extra block to the building",
         default=0.5,
@@ -682,20 +612,19 @@ def register():
 
 def unregister():
     # Unregistering the classes
-    bpy.utils.unregister_class(DHG_HiddenObject)
-    # bpy.utils.unregister_class(DHG_OT_ConfirmDeleteOldCollection)
-    bpy.utils.unregister_class(DHG_PT_DesertHouseGeneratorPanel)
-    bpy.utils.unregister_class(DHG_OT_DesertHouseGenerator)
-    bpy.utils.unregister_class(DHG_OT_BuildingTemplateCreator)
+    bpy.utils.unregister_class(MB_HiddenObject)
+    bpy.utils.unregister_class(MB_PT_MagicBuilderPanel)
+    bpy.utils.unregister_class(MB_OT_MagicBuilder)
+    bpy.utils.unregister_class(MB_OT_BuildingTemplateCreator)
     bpy.utils.unregister_class(SelectWithChildrenPreferences)
-    bpy.utils.unregister_class(DHG_OT_RehideObjects)
+    bpy.utils.unregister_class(MB_OT_RehideObjects)
     
-    del bpy.types.WindowManager.dhg_old_collection_deleted
-    del bpy.types.Scene.dhg_max_x
-    del bpy.types.Scene.dhg_max_y
-    del bpy.types.Scene.dhg_max_z
-    del bpy.types.Scene.dhg_start_degree
-    del bpy.types.Scene.dhg_start_loc
-    del bpy.types.Scene.dhg_add_roof
-    del bpy.types.Scene.dhg_collection_name
-    del bpy.types.Scene.dhg_design_collection_name
+    del bpy.types.WindowManager.mb_old_collection_deleted
+    del bpy.types.Scene.mb_max_x
+    del bpy.types.Scene.mb_max_y
+    del bpy.types.Scene.mb_max_z
+    del bpy.types.Scene.mb_start_degree
+    del bpy.types.Scene.mb_start_loc
+    del bpy.types.Scene.mb_add_roof
+    del bpy.types.Scene.mb_collection_name
+    del bpy.types.Scene.mb_design_collection_name
