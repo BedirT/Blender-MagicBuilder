@@ -1,9 +1,11 @@
 # Blender-MagicHouse
 MagicHouse is a blender add-on that implements a custom procedural building generation
 
-![MagicHouse](img/toolbar.png)
-
-![Building GIF](img/building.gif)
+<!-- Adding the images side by side -->
+<div style="display: flex; flex-direction: row;">
+    <img src="img/building.gif" height="400">
+    <img src="img/toolbar.png" height="400">
+</div>
 
 # Model Notes
 - The model props do not support targeted mirror modifier. Please apply the mirror modifier before generating the model. (Except self-mirror)
