@@ -259,10 +259,11 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             
             # Create floor collection if it doesn't exist
             floor_collection_name = f'floor_{coordinates[2]}'
-            if floor_collection_name not in bpy.data.collections:
+            if floor_collection_name not in self.collection.children:
                 floor_collection = bpy.data.collections.new(floor_collection_name)
                 floor_collection.color_tag = 'COLOR_0' + str(coordinates[2] % 8 + 1)
                 self.collection.children.link(floor_collection)
+                floor_collection_name = floor_collection.name # in case the name was changed due to a duplicate
             else:
                 floor_collection = bpy.data.collections.get(floor_collection_name)
 
