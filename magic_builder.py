@@ -130,39 +130,53 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                     extras.append(extra)
         return extras
 
-    def set_piece_rotation(self, piece, rotation_degrees: Tuple[float]):
-        '''Handle rotating the objects'''
-        piece.rotation_euler = (math.radians(rotation_degrees[0]),
-                                math.radians(rotation_degrees[1]),
-                                math.radians(rotation_degrees[2]))
+    def set_piece_rotation(self, piece: bpy.types.Object, rotation_degrees: Tuple[float]):
+        """Handle rotating the objects."""
+        piece.rotation_euler = (
+            math.radians(rotation_degrees[0]),
+            math.radians(rotation_degrees[1]),
+            math.radians(rotation_degrees[2]),
+        )
     
-    def get_piece_rotation(self, coordinates: Tuple[int], piece_type: str):
-        rotation_values = {
-            'roof_edge': {0: (0, 0, 270), self.max_x - 1: (0, 0, 90), self.max_y - 1: (0, 0, 180)},
-            'roof_corner': {(0, 0): (0, 0, 0), (self.max_x - 1, 0): (0, 0, 90), 
-                            (self.max_x - 1, self.max_y - 1): (0, 0, 180)},
-            'roof_center': {(0, 0): (0, 0, 0), (self.max_x - 1, 0): (0, 0, 90), 
-                            (self.max_x - 1, self.max_y - 1): (0, 0, 180)},
-            'center_corner': {(0, 0): (0, 0, 180), (self.max_x - 1, 0): (0, 0, 270), 
-                                (self.max_x - 1, self.max_y - 1): (0, 0, 0)},
-            'center_edge': {0: (0, 0, 90), self.max_x - 1: (0, 0, 270), self.max_y - 1: (0, 0, 0)},
-            'center': {(0, 0): (0, 0, 0)}
+    def get_piece_rotation(self, coordinates: Tuple[int], piece_type: str) -> Tuple[float]:
+        """
+        Determine the piece rotation based on coordinates and piece type.
+        """
+        x, y, _ = coordinates
+        max_x, max_y = self.max_x - 1, self.max_y - 1
+
+        # Map the piece type and coordinates to the rotation values
+        rotation_map = {
+            'roof_edge': {
+                (0, y): (0, 0, 270),
+                (max_x, y): (0, 0, 90),
+                (x, max_y): (0, 0, 180),
+            },
+            'roof_corner': {
+                (max_x, 0): (0, 0, 90),
+                (max_x, max_y): (0, 0, 180),
+                (0, max_y): (0, 0, 270),
+            },
+            'roof_center': {  # same as 'roof_corner'
+                (max_x, 0): (0, 0, 90),
+                (max_x, max_y): (0, 0, 180),
+                (0, max_y): (0, 0, 270),
+            },
+            'corner': {
+                (0, 0): (0, 0, 180),
+                (max_x, 0): (0, 0, 270),
+                (0, max_y): (0, 0, 90),
+            },
+            'edge': {
+                (0, y): (0, 0, 90),
+                (max_x, y): (0, 0, 270),
+                (x, 0): (0, 0, 180),
+            },
         }
-        if piece_type in rotation_values.keys():
-            if piece_type == 'center':
-                return rotation_values[piece_type][(0, 0)]
-            elif piece_type == 'center_edge':
-                return rotation_values[piece_type][coordinates[0]]
-            elif piece_type == 'center_corner':
-                return rotation_values[piece_type][coordinates]
-            elif piece_type == 'roof_center':
-                return rotation_values[piece_type][coordinates]
-            elif piece_type == 'roof_corner':
-                return rotation_values[piece_type][coordinates]
-            elif piece_type == 'roof_edge':
-                return rotation_values[piece_type][coordinates[0]]
-        else:
-            return (0, 0, 0)
+
+        # Get the rotation based on the piece type and coordinates
+        rotation = rotation_map.get(piece_type, {}).get((x, y), (0, 0, 0))
+        return rotation
 
     def duplicate_objects_with_children(self, obj, target_collection, addon_prefs):
         duplicate = obj.copy()
