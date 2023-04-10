@@ -15,67 +15,49 @@ bl_info = {
 }
 
 # Add subcollections for the different parts
-type_names = {
+part_collections  = {
     'gound_level': ['bottom_edge', 'bottom_corner', 'bottom_center'],
     'middle_level': ['middle_edge', 'middle_corner', 'middle_center'],
     'roof_level': ['roof_edge', 'roof_corner', 'roof_center']
 }
 
-    
 class MB_OT_MagicBuilder(bpy.types.Operator):
-    '''
+    """
     Generates a house with the given design blocks.
-    '''
+    """
     bl_idname = "mb.generate_building"
     bl_label = "Magic Builder"
     bl_options = {'REGISTER', 'UNDO'}
-
+    
     def execute(self, context):
-        self.building_setup(
-            max_x=context.scene.mb_max_x,
-            max_y=context.scene.mb_max_y,
-            max_z=context.scene.mb_max_z,
-            start_degree=context.scene.mb_start_degree,
-            start_loc=context.scene.mb_start_loc,
-            add_roof=context.scene.mb_add_roof,
-            collection_name=context.scene.mb_collection_name,
-            design_collection_name=context.scene.mb_design_collection_name,
-            extra_probability=context.scene.mb_extra_probability,
-        )
+        # Set properties
+        self.max_x = int(context.scene.mb_max_x)
+        self.max_y = int(context.scene.mb_max_y)
+        self.max_z = int(context.scene.mb_max_z)
+        self.add_roof = context.scene.mb_add_roof
+        self.start_degree = int(context.scene.mb_start_degree)
+        self.start_loc = context.scene.mb_start_loc
+        self.extra_probability = context.scene.mb_extra_probability
 
-        if self.design_collection is None:
-            self.report({'ERROR'}, f"Collection {context.scene.mb_design_collection_name} not found")
+        self.piece_size = self.find_piece_size()
+
+        self.collection_name = context.scene.mb_collection_name
+        self.clear_collection()
+
+        # Get the design collection
+        design_collection_name = context.scene.mb_design_collection_name
+        try:
+            self.design_collection = bpy.data.collections.get(design_collection_name)
+        except CollectionNotFoundError:
+            self.report({'ERROR'}, f"Collection {design_collection_name} not found")
             return {'CANCELLED'}
         self.set_piece_types()
-
         self.generate_building()
 
         return {'FINISHED'}
 
-    def building_setup(self,  max_x: int, 
-                            max_y: int, 
-                            max_z: int, 
-                            start_degree: Tuple[float], 
-                            start_loc: Tuple[float], 
-                            add_roof: bool, 
-                            collection_name: str, 
-                            design_collection_name: str,
-                            extra_probability: float = 0.4,): 
-        self.add_roof = add_roof
-        self.start_degree = start_degree
-        self.start_loc = start_loc
-        self.max_x = max_x
-        self.max_y = max_y
-        self.max_z = max_z
-        self.collection_name = collection_name
-        self.piece_size = self.find_piece_size()
-        self.extra_probability = extra_probability
-
-        # Get the design collection
-        self.design_collection = bpy.data.collections.get(design_collection_name)
-        self.clear_collection()
-
     def clear_collection(self):
+        """Remove old collection and purge orphaned data."""
         if self.collection_name in bpy.data.collections:
             old_collection = bpy.data.collections[self.collection_name]
             for obj in old_collection.objects:
@@ -84,63 +66,45 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             bpy.data.collections.remove(old_collection)
 
             # Purge orphaned data
-            bpy.ops.outliner.orphans_purge() # purge collections
-            bpy.ops.outliner.orphans_purge() # purge objects
-            bpy.ops.outliner.orphans_purge() # purge meshes
+            bpy.ops.outliner.orphans_purge()  # purge collections
+            bpy.ops.outliner.orphans_purge()  # purge objects
+            bpy.ops.outliner.orphans_purge()  # purge meshes
 
     def is_corner(self, coordinates: Tuple[int]) -> bool:
-        '''Returns true if coordinates indicate a corner location.'''
+        """Returns true if coordinates indicate a corner location."""
         return coordinates[0] in [0, self.max_x-1] and coordinates[1] in [0, self.max_y-1]
 
     def is_inside(self, coordinates: Tuple[int]) -> bool:
-        '''Returns true if coordinates indicate a location that is not an edge.'''
+        """Returns true if coordinates indicate a location that is not an edge."""
         return coordinates[0] < self.max_x-1 and coordinates[0] > 0 and coordinates[1] > 0 and coordinates[1] < self.max_y-1
 
-    def find_piece_size(self):
-        # !@
-        # Get piece dimensions
-        # piece_size = piece.dimensions
-        return (2., 2., 2.)
+    def find_piece_size(self) -> Tuple[float]:
+        """Find the size of the mesh objects in the design collection."""
+        for obj in self.design_collection.all_objects:
+            if obj.type == 'MESH':
+                return obj.dimensions
 
     def set_piece_type(self, piece_type: str):
         '''
         Searches for a piece with the given name in the design collection
         '''
         pieces = {}
-        # Search for all the objects in the 
-        nested_collections = self.design_collection.children_recursive
-        nested_collections = {c.name: c for c in nested_collections}
-        collection = None
-        if piece_type in nested_collections:
-            collection = nested_collections.get(piece_type)
-        if not collection:
-            self.report({'ERROR'}, f'No collection found with name {piece_type}. You must have\n' +\
-                'a collection with the name of the piece type and the objects inside it.')
-            return None
-        # get the pieces from the collection
-        if collection.objects:
+        if piece_type in self.design_collection.children.keys():
+            collection = self.design_collection.children[piece_type]
+            pieces = {obj.name.split('_')[1]: {'prop': obj} for obj in collection.objects if obj.name.startswith('prop_')}
             for obj in collection.objects:
-                piece_sep = obj.name.split('_')
-                if len(piece_sep) > 1 and piece_sep[0] in ['prop', 'extra']:
-                    if piece_sep[1] not in pieces:
-                        pieces[piece_sep[1]] = {'prop': None, 'extra': []}
-                    if piece_sep[0] == 'prop' and pieces[piece_sep[1]]['prop'] is not None:
-                        self.report({'ERROR'}, f'Only one prop object is allowed for each id. {piece_sep[1]} has more than one prop object.')
-                        return None
-                    if piece_sep[0] == 'prop':
-                        pieces[piece_sep[1]]['prop'] = obj
-                    else:
-                        pieces[piece_sep[1]]['extra'].append(obj)
-                # we ignore the objects that are not part of the design
+                if obj.name.startswith('extra_'):
+                    piece_name = obj.name.split('_')[1]
+                    if piece_name in pieces.keys():
+                        pieces[piece_name]['extra'].append(obj)
         else:
-            self.report({'ERROR'}, f'No piece found for {piece_type}. You must have\n' +\
-                'a collection with the name of the piece type and the objects inside it starting with prop_ or extra_.')
-            return None
+            self.report({'ERROR'}, f'No collection found with name {piece_type}. You must have\n' +
+                                    'a collection with the name of the piece type and the objects inside it.')
         return pieces
 
     def set_piece_types(self):
         self.piece_types = {}
-        for piece_types in type_names.values():
+        for piece_types in part_collections .values():
             for piece_type in piece_types:
                 self.piece_types[piece_type] = self.set_piece_type(piece_type)
 
@@ -169,52 +133,31 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                                 math.radians(rotation_degrees[2]))
     
     def get_piece_rotation(self, coordinates: Tuple[int], piece_type: str):
-        if piece_type == 'roof_edge':
-            if coordinates[0] == 0:
-                return (0, 0, 270)
-            elif coordinates[0] == self.max_x - 1:
-                return (0, 0, 90)
-            elif coordinates[1] == self.max_y - 1:
-                return (0, 0, 180)
-            else:
-                return (0, 0, 0)
-        elif piece_type == 'roof_corner':
-            if coordinates[0] == 0 and coordinates[1] == 0:
-                return (0, 0, 0)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == 0:
-                return (0, 0, 90)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == self.max_y - 1:
-                return (0, 0, 180)
-            else:
-                return (0, 0, 270)
-        elif piece_type == 'roof_center':
-            if coordinates[0] == 0 and coordinates[1] == 0:
-                return (0, 0, 0)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == 0:
-                return (0, 0, 90)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == self.max_y - 1:
-                return (0, 0, 180)
-            else:
-                return (0, 0, 270)
-        elif piece_type.endswith('corner'):
-            if coordinates[0] == 0 and coordinates[1] == 0:
-                return (0, 0, 180)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == 0:
-                return (0, 0, 270)
-            elif coordinates[0] == self.max_x - 1 and coordinates[1] == self.max_y - 1:
-                return (0, 0, 0)
-            else:
-                return (0, 0, 90)
-        elif piece_type.endswith('edge'):
-            if coordinates[0] == 0:
-                return (0, 0, 90)
-            elif coordinates[0] == self.max_x - 1:
-                return (0, 0, 270)
-            elif coordinates[1] == self.max_y - 1:
-                return (0, 0, 0)
-            else:
-                return (0, 0, 180)
-        else: # center
+        rotation_values = {
+            'roof_edge': {0: (0, 0, 270), self.max_x - 1: (0, 0, 90), self.max_y - 1: (0, 0, 180)},
+            'roof_corner': {(0, 0): (0, 0, 0), (self.max_x - 1, 0): (0, 0, 90), 
+                            (self.max_x - 1, self.max_y - 1): (0, 0, 180)},
+            'roof_center': {(0, 0): (0, 0, 0), (self.max_x - 1, 0): (0, 0, 90), 
+                            (self.max_x - 1, self.max_y - 1): (0, 0, 180)},
+            'center_corner': {(0, 0): (0, 0, 180), (self.max_x - 1, 0): (0, 0, 270), 
+                                (self.max_x - 1, self.max_y - 1): (0, 0, 0)},
+            'center_edge': {0: (0, 0, 90), self.max_x - 1: (0, 0, 270), self.max_y - 1: (0, 0, 0)},
+            'center': {(0, 0): (0, 0, 0)}
+        }
+        if piece_type in rotation_values.keys():
+            if piece_type == 'center':
+                return rotation_values[piece_type][(0, 0)]
+            elif piece_type == 'center_edge':
+                return rotation_values[piece_type][coordinates[0]]
+            elif piece_type == 'center_corner':
+                return rotation_values[piece_type][coordinates]
+            elif piece_type == 'roof_center':
+                return rotation_values[piece_type][coordinates]
+            elif piece_type == 'roof_corner':
+                return rotation_values[piece_type][coordinates]
+            elif piece_type == 'roof_edge':
+                return rotation_values[piece_type][coordinates[0]]
+        else:
             return (0, 0, 0)
 
     def duplicate_objects_with_children(self, obj, target_collection, addon_prefs):
@@ -323,7 +266,7 @@ class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
         # Create the subcollections
         idx_p = 0
         first_item = True
-        for parent_name, sub_names in type_names.items():
+        for parent_name, sub_names in part_collections .items():
             subcollection = bpy.data.collections.new(parent_name)
             subcollection.color_tag = 'COLOR_0' + str(idx_p % 8 + 1)
             collection.children.link(subcollection)
