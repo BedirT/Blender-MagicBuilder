@@ -1,7 +1,7 @@
 import bpy
 import math
 import random
-from typing import Tuple 
+from typing import Tuple, Dict, List, Union, Optional
 
 bl_info = {
     "name": "Magic Builder",
@@ -38,8 +38,7 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         self.start_degree = int(context.scene.mb_start_degree)
         self.start_loc = context.scene.mb_start_loc
         self.extra_probability = context.scene.mb_extra_probability
-
-        self.piece_size = self.find_piece_size()
+        self.piece_size = None
 
         self.collection_name = context.scene.mb_collection_name
         self.clear_collection()
@@ -78,30 +77,42 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         """Returns true if coordinates indicate a location that is not an edge."""
         return coordinates[0] < self.max_x-1 and coordinates[0] > 0 and coordinates[1] > 0 and coordinates[1] < self.max_y-1
 
-    def find_piece_size(self) -> Tuple[float]:
-        """Find the size of the mesh objects in the design collection."""
-        for obj in self.design_collection.all_objects:
-            if obj.type == 'MESH':
-                return obj.dimensions
-
-    def set_piece_type(self, piece_type: str) -> Dict[str, Dict[str, Union[bpy.types.Object, List[bpy.types.Object]]]]:
-        """
-        Searches for a piece with the given name in the design collection.
-        """
+    def set_piece_type(self, piece_type: str):
+        '''
+        Searches for a piece with the given name in the design collection
+        '''
         pieces = {}
-        if piece_type in self.design_collection.children.keys():
-            collection = self.design_collection.children[piece_type]
-            # Get prop objects
-            pieces = {obj.name.split('_')[1]: {'prop': obj} for obj in collection.objects if obj.name.startswith('prop_')}
-            # Get extra objects
-            for obj in collection.objects:
-                if obj.name.startswith('extra_'):
-                    piece_name = obj.name.split('_')[1]
-                    if piece_name in pieces.keys():
-                        pieces[piece_name]['extra'].append(obj)
-        else:
-            self.report({'ERROR'}, f'No collection found with name {piece_type}. You must have\n' +
-                                    'a collection with the name of the piece type and the objects inside it.')
+        # Search for all the objects in the 
+        nested_collections = {c.name: c for c in self.design_collection.children_recursive}
+        collection = nested_collections.get(piece_type)
+        if not collection:
+            self.report({'ERROR'}, f'No collection found with name {piece_type}. You must have\n' +\
+                'a collection with the name of the piece type and the objects inside it.')
+            return None
+        # get the pieces from the collection
+        for obj in collection.objects:
+            piece_sep = obj.name.split('_')
+            if len(piece_sep) > 1 and piece_sep[0] in ['prop', 'extra']:
+                piece_id = piece_sep[1]
+                if piece_id not in pieces:
+                    pieces[piece_id] = {'prop': None, 'extra': []}
+
+                if piece_sep[0] == 'prop':
+                    if pieces[piece_id]['prop'] is not None:
+                        self.report({'ERROR'}, f'Only one prop object is allowed for each id. {piece_sep[1]} has more than one prop object.')
+                        return None
+                    pieces[piece_sep[1]]['prop'] = obj
+                    if not self.piece_size:
+                        self.piece_size = obj.dimensions
+                else:
+                    pieces[piece_sep[1]]['extra'].append(obj)
+            # Ignore the objects that are not part of the design
+
+        if not pieces:
+            self.report({'ERROR'}, f'No piece found for {piece_type}. You must have\n' +\
+                'a collection with the name of the piece type and the objects inside it starting with prop_ or extra_.')
+            return None
+
         return pieces
 
     def set_piece_types(self):
@@ -143,40 +154,58 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         Determine the piece rotation based on coordinates and piece type.
         """
         x, y, _ = coordinates
-        max_x, max_y = self.max_x - 1, self.max_y - 1
+        last_x, last_y = self.max_x - 1, self.max_y - 1
 
-        # Map the piece type and coordinates to the rotation values
-        rotation_map = {
-            'roof_edge': {
-                (0, y): (0, 0, 270),
-                (max_x, y): (0, 0, 90),
-                (x, max_y): (0, 0, 180),
-            },
-            'roof_corner': {
-                (max_x, 0): (0, 0, 90),
-                (max_x, max_y): (0, 0, 180),
-                (0, max_y): (0, 0, 270),
-            },
-            'roof_center': {  # same as 'roof_corner'
-                (max_x, 0): (0, 0, 90),
-                (max_x, max_y): (0, 0, 180),
-                (0, max_y): (0, 0, 270),
-            },
-            'corner': {
-                (0, 0): (0, 0, 180),
-                (max_x, 0): (0, 0, 270),
-                (0, max_y): (0, 0, 90),
-            },
-            'edge': {
-                (0, y): (0, 0, 90),
-                (max_x, y): (0, 0, 270),
-                (x, 0): (0, 0, 180),
-            },
+        rotation_info = {
+            'roof_edge': {}
         }
-
-        # Get the rotation based on the piece type and coordinates
-        rotation = rotation_map.get(piece_type, {}).get((x, y), (0, 0, 0))
-        return rotation
+        if piece_type == 'roof_edge':
+            if x == 0:
+                return (0, 0, 270)
+            elif x == last_x:
+                return (0, 0, 90)
+            elif y == last_y:
+                return (0, 0, 180)
+            else:
+                return (0, 0, 0)
+        elif piece_type == 'roof_corner':
+            if x == 0 and y == 0:
+                return (0, 0, 0)
+            elif x == last_x and y == 0:
+                return (0, 0, 90)
+            elif x == last_x and y == last_y:
+                return (0, 0, 180)
+            else:
+                return (0, 0, 270)
+        elif piece_type == 'roof_center':
+            if x == 0 and y == 0:
+                return (0, 0, 0)
+            elif x == last_x and y == 0:
+                return (0, 0, 90)
+            elif x == last_x and y == last_y:
+                return (0, 0, 180)
+            else:
+                return (0, 0, 270)
+        elif piece_type.endswith('corner'):
+            if x == 0 and y == 0:
+                return (0, 0, 180)
+            elif x == last_x and y == 0:
+                return (0, 0, 270)
+            elif x == last_x and y == last_y:
+                return (0, 0, 0)
+            else:
+                return (0, 0, 90)
+        elif piece_type.endswith('edge'):
+            if x == 0:
+                return (0, 0, 90)
+            elif x == last_x:
+                return (0, 0, 270)
+            elif y == last_y:
+                return (0, 0, 0)
+            else:
+                return (0, 0, 180)
+        else:  # center
+            return (0, 0, 0)
 
     def duplicate_objects_with_children(self, obj: bpy.types.Object, target_collection: bpy.types.Collection, addon_prefs: bpy.types.AddonPreferences) -> bpy.types.Object:
         """Duplicate an object and its children recursively."""
