@@ -29,6 +29,7 @@ Above is a sample building generated with the add-on. I am not the best at model
     - [x] Custom z rotation
     - [x] Probability picker for extras
     - [x] Auto Template Generation
+    - [x] Custom prop sizing
     - [x] Children selection button (for moving the objects with children)
         - [x] Option to include invisible objects in the selection
         - [x] Option to bulk re-hide the invisible objects
@@ -40,3 +41,4 @@ Above is a sample building generated with the add-on. I am not the best at model
 - The model props do not support targeted mirror modifier. Please apply the mirror modifier before generating the model. (Except self-mirror)
 - Make sure the props' origin is always in the center of the model (This doesn't always mean "move origin to geometry" if the model size is 2x2x2 it should be at 1,1,1 etc.)
 - The extras must have the same origin point as the prop.
+- Initial version implemented allowed boolean modifier, but it was removed due to performance issues. If you have a boolean on an object you have to apply it before generating the model.
