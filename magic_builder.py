@@ -38,7 +38,7 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         self.start_degree = int(context.scene.mb_start_degree)
         self.start_loc = context.scene.mb_start_loc
         self.extra_probability = context.scene.mb_extra_probability
-        self.piece_size = None
+        self.piece_size = context.scene.mb_block_size
 
         self.collection_name = context.scene.mb_collection_name
         self.clear_collection()
@@ -51,7 +51,10 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             self.report({'ERROR'}, f"Collection {design_collection_name} not found")
             return {'CANCELLED'}
         self.set_piece_types()
+
+        depsgraph = context.evaluated_depsgraph_get() # Get the evaluated depsgraph
         self.generate_building()
+        depsgraph.update() # Update the depsgraph manually
 
         return {'FINISHED'}
 
@@ -92,10 +95,10 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         # get the pieces from the collection
         for obj in collection.objects:
             piece_sep = obj.name.split('_')
-            if len(piece_sep) > 1 and piece_sep[0] in ['prop', 'extra']:
+            if len(piece_sep) > 1 and piece_sep[0] in ['prop', 'extra', 'child']:
                 piece_id = piece_sep[1]
                 if piece_id not in pieces:
-                    pieces[piece_id] = {'prop': None, 'extra': []}
+                    pieces[piece_id] = {'prop': None, 'extra': [], 'child': []}
 
                 if piece_sep[0] == 'prop':
                     if pieces[piece_id]['prop'] is not None:
@@ -105,12 +108,12 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                     if not self.piece_size:
                         self.piece_size = obj.dimensions
                 else:
-                    pieces[piece_sep[1]]['extra'].append(obj)
+                    pieces[piece_sep[1]][piece_sep[0]].append(obj)
             # Ignore the objects that are not part of the design
 
         if not pieces:
             self.report({'ERROR'}, f'No piece found for {piece_type}. You must have\n' +\
-                'a collection with the name of the piece type and the objects inside it starting with prop_ or extra_.')
+                'a collection with the name of the piece type and the objects inside it starting with prop_, child_ or extra_.')
             return None
 
         return pieces
@@ -140,6 +143,14 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                 if random.random() < self.extra_probability:
                     extras.append(extra)
         return extras
+
+    def get_children(self, piece_type: str, piece_idx: str) -> List[bpy.types.Object]:
+        """Get the children of the prop piece."""
+        children = []
+        if self.piece_types[piece_type][piece_idx]['child']:
+            for child in self.piece_types[piece_type][piece_idx]['child']:
+                children.append(child)
+        return children
 
     def set_piece_rotation(self, piece: bpy.types.Object, rotation_degrees: Tuple[float]):
         """Handle rotating the objects."""
@@ -207,34 +218,11 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         else:  # center
             return (0, 0, 0)
 
-    def duplicate_objects_with_children(self, obj: bpy.types.Object, target_collection: bpy.types.Collection, addon_prefs: bpy.types.AddonPreferences) -> bpy.types.Object:
-        """Duplicate an object and its children recursively."""
-        duplicate = obj.copy()
-        duplicate.data = obj.data.copy()
-        target_collection.objects.link(duplicate)
-
-        for child in obj.children:
-            # If the child is hidden, unhide it to duplicate it
-            was_hidden = child.hide_get()
-            if was_hidden:
-                child.hide_set(False)
-
-            child_duplicate = self.duplicate_objects_with_children(child, target_collection, addon_prefs)
-            child_duplicate.parent = duplicate
-
-            if was_hidden:
-                child.hide_set(True)
-                child_duplicate.hide_set(True)
-
-            # Apply the child object's transformation relative to the parent
-            child_duplicate.matrix_parent_inverse = child.matrix_parent_inverse.copy()
-
-            # Update the boolean modifier if necessary
-            for mod in duplicate.modifiers:
-                if mod.type == 'BOOLEAN' and mod.object == child:
-                    mod.object = child_duplicate
-
-        return duplicate
+    def link_instance(self, obj: bpy.types.Object, collection: bpy.types.Collection):
+        """Link the object to the collection."""
+        piece = bpy.data.objects.new(obj.name, obj.data)
+        collection.objects.link(piece)
+        return piece
 
     def generate_building(self):
         """Generate the building structure."""
@@ -245,17 +233,18 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
 
         z_lim = (self.max_z + 1) if self.add_roof else self.max_z
 
+        floor_collection_name = ''
         for i in range(self.max_y * self.max_x * z_lim):
             coordinates = i % self.max_x, (i // self.max_x) % self.max_y, i // (self.max_x * self.max_y)
 
-            # Create floor collection if it doesn't exist
-            floor_collection_name = f'floor_{coordinates[2]}'
-            if floor_collection_name not in self.collection.children:
-                floor_collection = bpy.data.collections.new(floor_collection_name)
+            # if this is the first block of the floor, create a new collection
+            if coordinates[0] == 0 and coordinates[1] == 0:
+                floor_collection = bpy.data.collections.new(f'floor_{coordinates[2]}')
                 floor_collection.color_tag = 'COLOR_0' + str(coordinates[2] % 8 + 1)
                 self.collection.children.link(floor_collection)
                 floor_collection_name = floor_collection.name
             else:
+                # get the floor collection
                 floor_collection = bpy.data.collections.get(floor_collection_name)
 
             # Pick the suitable piece
@@ -272,8 +261,8 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             if piece_orig is None:
                 continue
 
-            addon_prefs = bpy.context.preferences.addons[__name__].preferences
-            piece = self.duplicate_objects_with_children(piece_orig, floor_collection, addon_prefs)
+            piece = self.link_instance(piece_orig, floor_collection)
+
             piece.location = (
                 self.start_loc[0] + coordinates[0] * self.piece_size[0],
                 self.start_loc[1] + coordinates[1] * self.piece_size[1],
@@ -282,13 +271,19 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
             piece_rotation = self.get_piece_rotation(coordinates, piece_type)
             self.set_piece_rotation(piece, piece_rotation)
 
+            # Add children
+            children = self.get_children(piece_type, idx)
+            for child_orig in children:
+                child = self.link_instance(child_orig, floor_collection)
+                child.location = piece.location
+                self.set_piece_rotation(child, piece_rotation)
+
             # Add extras
             extras = self.get_extras(piece_type, idx)
             for extra_orig in extras:
-                extra = self.duplicate_objects_with_children(extra_orig, floor_collection, addon_prefs)
+                extra = self.link_instance(extra_orig, floor_collection)
                 extra.location = piece.location
                 self.set_piece_rotation(extra, piece_rotation)
-
 
 
 class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
@@ -382,16 +377,6 @@ class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class MB_HiddenObject(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
-    selected: bpy.props.BoolProperty(default=False)
-
-
-def update_use_select_with_children(self, context):
-    if not self.use_select_with_children:
-        self.select_invisible_objects = False
-
-
 class SelectWithChildrenPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
 
@@ -399,52 +384,12 @@ class SelectWithChildrenPreferences(bpy.types.AddonPreferences):
         name="Select with Children",
         description="When enabled, selecting an object will also select its children",
         default=False,
-        update=update_use_select_with_children,
     )
 
-    select_invisible_objects: bpy.props.BoolProperty(
-        name="Select Invisible Objects",
-        description="When enabled, selecting an object will also select its invisible children",
-        default=False,
-    )
 
-    hidden_objects: bpy.props.CollectionProperty(type=MB_HiddenObject)
-
-
-class MB_OT_RehideObjects(bpy.types.Operator):
-    """An operator to re-hide selected objects"""
-    bl_idname = "mb.rehide_objects"
-    bl_label = "Bulk Invisible"
-
-    def execute(self, context):
-        addon_prefs = context.preferences.addons[__name__].preferences
-
-        to_remove = []
-        for hidden_obj_data in addon_prefs.hidden_objects:
-            if hidden_obj_data.selected:
-                obj = bpy.data.objects.get(hidden_obj_data.name)
-                if obj:
-                    obj.hide_set(True)
-                    to_remove.append(hidden_obj_data.name)
-
-        for name in to_remove:
-            addon_prefs.hidden_objects.remove(addon_prefs.hidden_objects.find(name))
-
-        return {'FINISHED'}
-
-
-def select_objects(obj, addon_prefs, reveal_hidden=False):
-    hidden_objs = []
-
+def select_objects(obj):
     for o in obj.children_recursive:
-        if reveal_hidden and o.hide_get():
-            hidden_objs.append(o.name_full)
-            o.hide_set(False)
         o.select_set(True)
-
-    for o in hidden_objs:
-        addon_prefs.hidden_objects.add().name = o
-        addon_prefs.hidden_objects[-1].selected = False
 
 
 def on_object_select(*args):
@@ -455,7 +400,7 @@ def on_object_select(*args):
     addon_prefs = bpy.context.preferences.addons[__name__].preferences
 
     if addon_prefs.use_select_with_children and obj and obj.select_get():
-        select_objects(obj, addon_prefs, addon_prefs.select_invisible_objects)
+        select_objects(obj)
 
 
 def subscribe_to_object_select():
@@ -505,6 +450,12 @@ class MB_PT_MagicBuilderPanel(bpy.types.Panel):
         col.prop(context.scene, "mb_extra_probability", text="Prob", slider=True)
 
         col = layout.column(align=True)
+        col.label(text="Block Size:", icon='MOD_BUILD')
+        col.prop(context.scene, "mb_block_size", text="X-size", index=0, slider=True)
+        col.prop(context.scene, "mb_block_size", text="Y-size", index=1, slider=True)
+        col.prop(context.scene, "mb_block_size", text="Z-size", index=2, slider=True)
+
+        col = layout.column(align=True)
         col.label(text="Add Roof:")
         col.prop(context.scene, "mb_add_roof")
 
@@ -526,19 +477,6 @@ class MB_PT_MagicBuilderPanel(bpy.types.Panel):
         layout.prop(addon_prefs, "use_select_with_children", text="Select with Children", icon='LINKED')
         row = layout.row()
         row.enabled = addon_prefs.use_select_with_children
-        row.prop(addon_prefs, "select_invisible_objects", text="Select Invisible Objects")
-
-        layout.label(text="Re-hide objects:")
-
-        if len(addon_prefs.hidden_objects) == 0:
-            layout.label(text="No objects to re-hide", icon='INFO')
-        else:
-            box = layout.box()
-            col = box.column()
-            for hidden_obj_data in addon_prefs.hidden_objects:
-                col.prop(hidden_obj_data, "selected", text=hidden_obj_data.name)
-
-            bulk_invisible_op = layout.operator("mb.rehide_objects", icon='RESTRICT_VIEW_ON')
             
 
 def register():
@@ -546,19 +484,11 @@ def register():
     Register all classes and properties related to the Magic Builder addon.
     """
     # Registering the classes
-    bpy.utils.register_class(MB_HiddenObject)
     bpy.utils.register_class(MB_PT_MagicBuilderPanel)
     bpy.utils.register_class(MB_OT_MagicBuilder)
     bpy.utils.register_class(MB_OT_BuildingTemplateCreator)
     bpy.utils.register_class(SelectWithChildrenPreferences)
-    bpy.utils.register_class(MB_OT_RehideObjects)
     subscribe_to_object_select()
-    
-    bpy.types.WindowManager.mb_old_collection_deleted = bpy.props.BoolProperty(
-        name="Old Collection Deleted",
-        description="Indicates if the old collection has been deleted",
-        default=False
-    )
 
     bpy.types.Scene.mb_max_x = bpy.props.IntProperty(
         name="Max X",
@@ -592,6 +522,13 @@ def register():
         default=(0, 0, 0),
         subtype='XYZ'
     )
+    # Add a custom size property to the scene
+    bpy.types.Scene.mb_block_size = bpy.props.FloatVectorProperty(
+        name="Block Size",
+        description="Size of a building block",
+        default=(2., 2., 2.),
+        subtype='XYZ'
+    )
     bpy.types.Scene.mb_add_roof = bpy.props.BoolProperty(
         name="Add Roof",
         description="Whether to add a roof to the building",
@@ -620,19 +557,17 @@ def unregister():
     Unregister all classes and properties related to the Magic Builder addon.
     """
     # Unregistering the classes
-    bpy.utils.unregister_class(MB_HiddenObject)
     bpy.utils.unregister_class(MB_PT_MagicBuilderPanel)
     bpy.utils.unregister_class(MB_OT_MagicBuilder)
     bpy.utils.unregister_class(MB_OT_BuildingTemplateCreator)
     bpy.utils.unregister_class(SelectWithChildrenPreferences)
-    bpy.utils.unregister_class(MB_OT_RehideObjects)
     
-    del bpy.types.WindowManager.mb_old_collection_deleted
     del bpy.types.Scene.mb_max_x
     del bpy.types.Scene.mb_max_y
     del bpy.types.Scene.mb_max_z
     del bpy.types.Scene.mb_start_degree
     del bpy.types.Scene.mb_start_loc
+    del bpy.types.Scene.mb_block_size
     del bpy.types.Scene.mb_add_roof
     del bpy.types.Scene.mb_collection_name
     del bpy.types.Scene.mb_design_collection_name
