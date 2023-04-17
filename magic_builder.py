@@ -1,7 +1,21 @@
 import bpy
 import math
 import random
+from mathutils import Vector
+
 from typing import Tuple, Dict, List, Union, Optional
+
+class DotDict(dict):
+    """
+    a dictionary that supports dot notation 
+    as well as dictionary access notation 
+    usage: d = DotDict() or d = DotDict({'val1':'first'})
+    set attributes: d.val2 = 'second' or d['val2'] = 'second'
+    get attributes: d.val2 or d['val2']
+    """
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 bl_info = {
     "name": "Magic Builder",
@@ -38,7 +52,11 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         self.start_degree = int(context.scene.mb_start_degree)
         self.start_loc = context.scene.mb_start_loc
         self.extra_probability = context.scene.mb_extra_probability
-        self.piece_size = context.scene.mb_block_size
+        self.piece_size = DotDict({
+            'outer': context.scene.mb_block_size[0],
+            'depth': context.scene.mb_block_size[1],
+            'height': context.scene.mb_block_size[2]
+        })
 
         self.collection_name = context.scene.mb_collection_name
         self.clear_collection()
@@ -106,7 +124,11 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                         return None
                     pieces[piece_sep[1]]['prop'] = obj
                     if not self.piece_size:
-                        self.piece_size = obj.dimensions
+                        self.piece_size =DotDict({
+                            'outer': obj.dimensions[0],
+                            'depth': obj.dimensions[1],
+                            'height': obj.dimensions[2]
+                        })
                 else:
                     pieces[piece_sep[1]][piece_sep[0]].append(obj)
             # Ignore the objects that are not part of the design
@@ -232,58 +254,123 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         bpy.context.scene.collection.children.link(self.collection)
 
         z_lim = (self.max_z + 1) if self.add_roof else self.max_z
+        corner_piece_offset = max(self.piece_size.outer, self.piece_size.depth) / 2
 
         floor_collection_name = ''
-        for i in range(self.max_y * self.max_x * z_lim):
-            coordinates = i % self.max_x, (i // self.max_x) % self.max_y, i // (self.max_x * self.max_y)
 
-            # if this is the first block of the floor, create a new collection
-            if coordinates[0] == 0 and coordinates[1] == 0:
-                floor_collection = bpy.data.collections.new(f'floor_{coordinates[2]}')
-                floor_collection.color_tag = 'COLOR_0' + str(coordinates[2] % 8 + 1)
-                self.collection.children.link(floor_collection)
-                floor_collection_name = floor_collection.name
-            else:
-                # get the floor collection
-                floor_collection = bpy.data.collections.get(floor_collection_name)
+        swap = False
+        for z in range(z_lim):
+            for y in range(self.max_y):
+                for x in range(self.max_x):
+                    coordinates = (x, y, z)
 
-            # Pick the suitable piece
-            if self.is_inside(coordinates):
-                if (self.add_roof and coordinates[2] < self.max_z) or coordinates[2] == self.max_z - 1:
-                    continue
-                piece_type = 'center'
-            else:
-                piece_type = 'corner' if self.is_corner(coordinates) else 'edge'
+                    # if this is the first block of the floor, create a new collection
+                    if x == 0 and y == 0:
+                        floor_collection = bpy.data.collections.new(f'floor_{z}')
+                        floor_collection.color_tag = 'COLOR_0' + str(z % 8 + 1)
+                        self.collection.children.link(floor_collection)
+                        floor_collection_name = floor_collection.name
+                    else:
+                        # get the floor collection
+                        floor_collection = bpy.data.collections.get(floor_collection_name)
 
-            piece_type = f"{('bottom' if coordinates[2] == 0 else 'middle' if coordinates[2] < self.max_z else 'roof')}_{piece_type}"
+                    # Pick the suitable piece
+                    if self.is_inside(coordinates):
+                        if (self.add_roof and z < self.max_z) or z == self.max_z - 1:
+                            continue
+                        piece_type = 'center'
+                    else:
+                        piece_type = 'corner' if self.is_corner(coordinates) else 'edge'
 
-            piece_orig, idx = self.get_piece(piece_type)
-            if piece_orig is None:
-                continue
+                    piece_type = f"{('bottom' if z == 0 else 'middle' if z < self.max_z else 'roof')}_{piece_type}"
 
-            piece = self.link_instance(piece_orig, floor_collection)
+                    piece_orig, idx = self.get_piece(piece_type)
+                    if piece_orig is None:
+                        continue
 
-            piece.location = (
-                self.start_loc[0] + coordinates[0] * self.piece_size[0],
-                self.start_loc[1] + coordinates[1] * self.piece_size[1],
-                self.start_loc[2] + coordinates[2] * self.piece_size[2],
-            )
-            piece_rotation = self.get_piece_rotation(coordinates, piece_type)
-            self.set_piece_rotation(piece, piece_rotation)
+                    piece = self.link_instance(piece_orig, floor_collection)
+                    
+                    piece_rotation = self.get_piece_rotation(coordinates, piece_type)
+                    self.set_piece_rotation(piece, piece_rotation)
 
-            # Add children
-            children = self.get_children(piece_type, idx)
-            for child_orig in children:
-                child = self.link_instance(child_orig, floor_collection)
-                child.location = piece.location
-                self.set_piece_rotation(child, piece_rotation)
+                    if x == self.max_x - 1 and y == 0:
+                        swap = True
+                    if x == 0 and y == self.max_y - 1:
+                        swap = False
 
-            # Add extras
-            extras = self.get_extras(piece_type, idx)
-            for extra_orig in extras:
-                extra = self.link_instance(extra_orig, floor_collection)
-                extra.location = piece.location
-                self.set_piece_rotation(extra, piece_rotation)
+                    # if the piece is rotated, swap the x and y size so that the piece is placed correctly
+                    # if swap:
+                    #     piece_size = Dotdict({
+                    #             outer=self.piece_size.depth,
+                    #             depth=self.piece_size.outer,
+                    #             height=self.piece_size.height
+                    #         })   
+                    # else:
+                    piece_size = self.piece_size
+
+                    if self.is_corner(coordinates):
+                        piece.location = Vector((self.start_loc))
+                        if x == 0 and y == 0:
+                            piece.location.x += corner_piece_offset
+                            piece.location.y += corner_piece_offset
+                        elif x == self.max_x - 1 and y == 0:
+                            piece.location.x += (x - 1) * piece_size.outer + corner_piece_offset * 3
+                            piece.location.y += corner_piece_offset
+                        elif x == 0 and y == self.max_y - 1:
+                            piece.location.x += corner_piece_offset
+                            piece.location.y += (y - 1) * piece_size.outer + corner_piece_offset * 3
+                        else:
+                            piece.location.x += (x - 1) * piece_size.outer + corner_piece_offset * 3
+                            piece.location.y += (y - 1) * piece_size.outer + corner_piece_offset * 3
+                        piece.location.z += z * piece_size.height
+                    else:
+                        if y == 0: # first row
+                            piece.location = Vector((
+                                self.start_loc[0] + (x - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[1] + y * piece_size.depth,
+                                self.start_loc[2] + z * piece_size.height,
+                            ))
+                            piece.location.x += corner_piece_offset * 2
+                            piece.location.y += corner_piece_offset
+                        elif y == self.max_y - 1: # last row
+                            piece.location = Vector((
+                                self.start_loc[0] + (x - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[1] + (y - 1) * piece_size.outer + piece_size.depth * 1.5,
+                                self.start_loc[2] + z * piece_size.height,
+                            ))
+                            piece.location.x += corner_piece_offset * 2
+                        elif x == 0: # first column
+                            piece.location = Vector((
+                                self.start_loc[0],
+                                self.start_loc[1] + (y - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[2] + z * piece_size.height,
+                            ))
+                            piece.location.y += corner_piece_offset * 2
+                            piece.location.x += corner_piece_offset
+                        else:
+                            piece.location = Vector((
+                                self.start_loc[0] + (x - 1) * piece_size.outer + piece_size.depth / 2,
+                                self.start_loc[1] + (y - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[2] + z * piece_size.height,
+                            ))
+                            piece.location.y += corner_piece_offset * 2
+                            piece.location.x += corner_piece_offset * 2
+
+                    print(f"Placed {piece_type} at {coordinates} with rotation {piece_rotation} at {piece.location} (idx: {idx})")
+
+                    # Add children
+                    children = self.get_children(piece_type, idx)
+                    for child_orig in children:
+                        child = self.link_instance(child_orig, floor_collection)
+                        child.location = piece.location
+                        self.set_piece_rotation(child, piece_rotation)
+
+                    # Add extras
+                    extras = self.get_extras(piece_type, idx)
+                    for extra_orig in extras:
+                        extra = self.link_instance(extra_orig, floor_collection)
+                        extra.location = piece.location
+                        self.set_piece_rotation(extra, piece_rotation)
 
 
 class MB_OT_BuildingTemplateCreator(bpy.types.Operator):
@@ -451,9 +538,9 @@ class MB_PT_MagicBuilderPanel(bpy.types.Panel):
 
         col = layout.column(align=True)
         col.label(text="Block Size:", icon='MOD_BUILD')
-        col.prop(context.scene, "mb_block_size", text="X-size", index=0, slider=True)
-        col.prop(context.scene, "mb_block_size", text="Y-size", index=1, slider=True)
-        col.prop(context.scene, "mb_block_size", text="Z-size", index=2, slider=True)
+        col.prop(context.scene, "mb_block_size", text="Outfacing Size", index=0, slider=True)
+        col.prop(context.scene, "mb_block_size", text="Depth", index=1, slider=True)
+        col.prop(context.scene, "mb_block_size", text="Height", index=2, slider=True)
 
         col = layout.column(align=True)
         col.label(text="Add Roof:")
@@ -526,7 +613,7 @@ def register():
     bpy.types.Scene.mb_block_size = bpy.props.FloatVectorProperty(
         name="Block Size",
         description="Size of a building block",
-        default=(2., 2., 2.),
+        default=(0., 0., 0.),
         subtype='XYZ'
     )
     bpy.types.Scene.mb_add_roof = bpy.props.BoolProperty(
