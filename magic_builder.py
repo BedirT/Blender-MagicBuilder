@@ -243,6 +243,18 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
     def link_instance(self, obj: bpy.types.Object, collection: bpy.types.Collection):
         """Link the object to the collection."""
         piece = bpy.data.objects.new(obj.name, obj.data)
+
+        # Copy the modifiers from the original object to the new instance
+        for modifier in obj.modifiers:
+            piece.modifiers.new(modifier.name, modifier.type)
+            piece_mod = piece.modifiers[modifier.name]
+            for attr in dir(modifier):
+                if not callable(getattr(modifier, attr)) and not attr.startswith("__") and not attr in {'error_location', 'error_rotation'}:
+                    try:
+                        setattr(piece_mod, attr, getattr(modifier, attr))
+                    except AttributeError:
+                        pass
+
         collection.objects.link(piece)
         return piece
 
@@ -257,8 +269,6 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
         corner_piece_offset = max(self.piece_size.outer, self.piece_size.depth) / 2
 
         floor_collection_name = ''
-
-        swap = False
         for z in range(z_lim):
             for y in range(self.max_y):
                 for x in range(self.max_x):
@@ -293,19 +303,6 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                     piece_rotation = self.get_piece_rotation(coordinates, piece_type)
                     self.set_piece_rotation(piece, piece_rotation)
 
-                    if x == self.max_x - 1 and y == 0:
-                        swap = True
-                    if x == 0 and y == self.max_y - 1:
-                        swap = False
-
-                    # if the piece is rotated, swap the x and y size so that the piece is placed correctly
-                    # if swap:
-                    #     piece_size = Dotdict({
-                    #             outer=self.piece_size.depth,
-                    #             depth=self.piece_size.outer,
-                    #             height=self.piece_size.height
-                    #         })   
-                    # else:
                     piece_size = self.piece_size
 
                     if self.is_corner(coordinates):
@@ -347,7 +344,7 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                             ))
                             piece.location.y += corner_piece_offset * 2
                             piece.location.x += corner_piece_offset
-                        else:
+                        elif x == self.max_x - 1: # last column
                             piece.location = Vector((
                                 self.start_loc[0] + (x - 1) * piece_size.outer + piece_size.depth / 2,
                                 self.start_loc[1] + (y - 1) * piece_size.outer + piece_size.outer / 2,
@@ -355,6 +352,12 @@ class MB_OT_MagicBuilder(bpy.types.Operator):
                             ))
                             piece.location.y += corner_piece_offset * 2
                             piece.location.x += corner_piece_offset * 2
+                        else: # inside
+                            piece.location = Vector((
+                                self.start_loc[0] + piece_size.depth + (x - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[1] + piece_size.depth + (y - 1) * piece_size.outer + piece_size.outer / 2,
+                                self.start_loc[2] + z * piece_size.height,
+                            ))
 
                     print(f"Placed {piece_type} at {coordinates} with rotation {piece_rotation} at {piece.location} (idx: {idx})")
 
